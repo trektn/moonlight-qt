@@ -1,5 +1,6 @@
 #include "streamingpreferences.h"
 #include "utils.h"
+#include "streaming/input/mousebridge.h"
 
 #include <QSettings>
 #include <QTranslator>
@@ -129,6 +130,9 @@ void StreamingPreferences::reload()
     enableMdns = settings.value(SER_MDNS, true).toBool();
     quitAppAfter = settings.value(SER_QUITAPPAFTER, false).toBool();
     absoluteMouseMode = settings.value(SER_ABSMOUSEMODE, false).toBool();
+    mouseBridgeEnabled = settings.value("mousebridge/enabled", false).toBool();
+    mouseBridgeDevice = settings.value("mousebridge/device").toString();
+    mouseBridgeHost = settings.value("mousebridge/host").toString();
     absoluteTouchMode = settings.value(SER_ABSTOUCHMODE, true).toBool();
     framePacing = settings.value(SER_FRAMEPACING, false).toBool();
     connectionWarnings = settings.value(SER_CONNWARNINGS, true).toBool();
@@ -319,6 +323,9 @@ void StreamingPreferences::save()
     settings.setValue(SER_MDNS, enableMdns);
     settings.setValue(SER_QUITAPPAFTER, quitAppAfter);
     settings.setValue(SER_ABSMOUSEMODE, absoluteMouseMode);
+    settings.setValue("mousebridge/enabled", mouseBridgeEnabled);
+    settings.setValue("mousebridge/device", mouseBridgeDevice);
+    settings.setValue("mousebridge/host", mouseBridgeHost.trimmed());
     settings.setValue(SER_ABSTOUCHMODE, absoluteTouchMode);
     settings.setValue(SER_FRAMEPACING, framePacing);
     settings.setValue(SER_CONNWARNINGS, connectionWarnings);
@@ -343,6 +350,11 @@ void StreamingPreferences::save()
     settings.setValue(SER_SWAPFACEBUTTONS, swapFaceButtons);
     settings.setValue(SER_CAPTURESYSKEYS, captureSysKeysMode);
     settings.setValue(SER_KEEPAWAKE, keepAwake);
+}
+
+QVariantList StreamingPreferences::mouseBridgeDevices() const
+{
+    return MouseBridge::devices();
 }
 
 int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool yuv444)

@@ -59,6 +59,7 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         break;
 
     case KeyComboToggleMouseMode:
+        if (m_MouseBridge) break;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "Detected mouse mode toggle combo");
 
@@ -73,6 +74,9 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
         break;
 
     case KeyComboToggleCursorHide:
+        // Raw keyboard monitoring handles this globally in MouseBridge mode.
+        // Consuming the SDL copy prevents the same chord from toggling twice.
+        if (m_MouseBridge) break;
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "Detected show mouse combo");
 

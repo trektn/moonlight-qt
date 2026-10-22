@@ -1256,6 +1256,7 @@ Flickable {
 
                 CheckBox {
                     id: absoluteMouseCheck
+                    enabled: !StreamingPreferences.mouseBridgeEnabled
                     hoverEnabled: true
                     width: parent.width
                     text: qsTr("Optimize mouse for remote desktop instead of games")
@@ -1271,6 +1272,82 @@ Flickable {
                     ToolTip.text: qsTr("This enables seamless mouse control without capturing the client's mouse cursor. It is ideal for remote desktop usage but will not work in most games.") + " " +
                                   qsTr("You can toggle this while streaming using Ctrl+Alt+Shift+M.") + "\n\n" +
                                   qsTr("NOTE: Due to a bug in GeForce Experience, this option may not work properly if your host PC has multiple monitors.")
+                }
+
+                Column {
+                    visible: Qt.platform.os === "linux"
+                    width: parent.width
+                    spacing: 5
+
+                    CheckBox {
+                        id: mouseBridgeCheck
+                        text: qsTr("Use MouseBridge / VMulti for mouse input")
+                        font.pointSize: 12
+                        checked: StreamingPreferences.mouseBridgeEnabled
+                        onToggled: StreamingPreferences.mouseBridgeEnabled = checked
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: 5
+                        enabled: mouseBridgeCheck.checked
+
+                        AutoResizingComboBox {
+                            id: mouseBridgeDeviceCombo
+                            width: parent.width - mouseBridgeRefresh.width - parent.spacing
+                            textRole: "name"
+                            model: []
+                            displayText: currentIndex < 0 ? qsTr("Select a readable mouse") : currentText
+                            popup.background: Rectangle {
+                                color: "#424242"
+                                radius: 4
+                                border.color: "#757575"
+                            }
+
+                            function refreshDevices() {
+                                var saved = StreamingPreferences.mouseBridgeDevice
+                                var devices = StreamingPreferences.mouseBridgeDevices()
+                                model = devices
+                                currentIndex = -1
+                                for (var i = 0; i < devices.length; ++i) {
+                                    if (devices[i].path === saved) currentIndex = i
+                                }
+                                if (!saved && devices.length > 0) {
+                                    currentIndex = 0
+                                    StreamingPreferences.mouseBridgeDevice = devices[0].path
+                                }
+                            }
+                            Component.onCompleted: refreshDevices()
+                            onActivated: StreamingPreferences.mouseBridgeDevice = model[currentIndex].path
+                        }
+
+                        Button {
+                            id: mouseBridgeRefresh
+                            text: qsTr("Refresh")
+                            onClicked: mouseBridgeDeviceCombo.refreshDevices()
+                        }
+                    }
+
+                    TextField {
+                        width: parent.width
+                        enabled: mouseBridgeCheck.checked
+                        placeholderText: qsTr("Receiver: connected Moonlight host (default)")
+                        text: StreamingPreferences.mouseBridgeHost
+                        onTextEdited: StreamingPreferences.mouseBridgeHost = text.trim()
+                    }
+
+                    Label {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Ctrl+Alt+Shift+C releases/resumes your mouse without stopping the stream. The Windows host needs the MouseBridge receiver and VMulti driver.")
+                    }
+                    Label {
+                        visible: mouseBridgeCheck.checked && mouseBridgeDeviceCombo.count === 0
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: "orange"
+                        text: qsTr("No readable mice. Check mouse and keyboard input permissions, then Refresh.")
+                    }
                 }
 
                 Row {

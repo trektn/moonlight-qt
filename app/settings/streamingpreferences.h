@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QRect>
 #include <QQmlEngine>
+#include <QVariantList>
 
 class StreamingPreferences : public QObject
 {
@@ -15,6 +16,7 @@ public:
     getDefaultBitrate(int width, int height, int fps, bool yuv444);
 
     Q_INVOKABLE void save();
+    Q_INVOKABLE QVariantList mouseBridgeDevices() const;
 
     void reload();
 
@@ -117,6 +119,9 @@ public:
     Q_PROPERTY(bool enableMdns MEMBER enableMdns NOTIFY enableMdnsChanged)
     Q_PROPERTY(bool quitAppAfter MEMBER quitAppAfter NOTIFY quitAppAfterChanged)
     Q_PROPERTY(bool absoluteMouseMode MEMBER absoluteMouseMode NOTIFY absoluteMouseModeChanged)
+    Q_PROPERTY(bool mouseBridgeEnabled MEMBER mouseBridgeEnabled NOTIFY mouseBridgeChanged)
+    Q_PROPERTY(QString mouseBridgeDevice MEMBER mouseBridgeDevice NOTIFY mouseBridgeChanged)
+    Q_PROPERTY(QString mouseBridgeHost MEMBER mouseBridgeHost NOTIFY mouseBridgeChanged)
     Q_PROPERTY(bool absoluteTouchMode MEMBER absoluteTouchMode NOTIFY absoluteTouchModeChanged)
     Q_PROPERTY(bool framePacing MEMBER framePacing NOTIFY framePacingChanged)
     Q_PROPERTY(bool connectionWarnings MEMBER connectionWarnings NOTIFY connectionWarningsChanged)
@@ -156,6 +161,9 @@ public:
     bool enableMdns;
     bool quitAppAfter;
     bool absoluteMouseMode;
+    bool mouseBridgeEnabled;
+    QString mouseBridgeDevice;
+    QString mouseBridgeHost;
     bool absoluteTouchMode;
     bool framePacing;
     bool connectionWarnings;
@@ -193,6 +201,7 @@ signals:
     void enableMdnsChanged();
     void quitAppAfterChanged();
     void absoluteMouseModeChanged();
+    void mouseBridgeChanged();
     void absoluteTouchModeChanged();
     void audioConfigChanged();
     void videoCodecConfigChanged();

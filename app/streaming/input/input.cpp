@@ -194,6 +194,8 @@ SdlInputHandler::SdlInputHandler(StreamingPreferences& prefs, int streamWidth, i
 
 SdlInputHandler::~SdlInputHandler()
 {
+    // Stop raw input and release the evdev grab before SDL teardown.
+    m_MouseBridge.reset();
     for (int i = 0; i < MAX_GAMEPADS; i++) {
         if (m_GamepadState[i].mouseEmulationTimer != 0) {
             Session::get()->notifyMouseEmulationMode(false);
@@ -285,6 +287,9 @@ void SdlInputHandler::notifyMouseLeave()
 
 void SdlInputHandler::notifyFocusLost()
 {
+    if (m_MouseBridge) {
+        setCaptureActive(false);
+    }
     // Release mouse cursor when another window is activated (e.g. by using ALT+TAB).
     // This lets user to interact with our window's title bar and with the buttons in it.
     // Doing this while the window is full-screen breaks the transition out of FS
@@ -364,6 +369,18 @@ bool SdlInputHandler::isSystemKeyCaptureActive()
 
 void SdlInputHandler::setCaptureActive(bool active)
 {
+    if (m_MouseBridge) {
+        if (active && m_MouseBridgeUserReleased) return;
+        QString error;
+        if (!m_MouseBridge->setCaptured(active, error)) {
+            SDL_LogError(SDL_LOG_CATEGORY_INPUT, "MouseBridge: %s", qPrintable(error));
+            m_MouseBridgeUserReleased = true;
+            auto& overlay = Session::get()->getOverlayManager();
+            overlay.updateOverlayText(Overlay::OverlayStatusUpdate, qPrintable(error));
+            overlay.setOverlayState(Overlay::OverlayStatusUpdate, true);
+            return;
+        }
+    }
     if (active) {
         // If we're in relative mode, try to activate SDL's relative mouse mode
         if (m_AbsoluteMouseMode || SDL_SetRelativeMouseMode(SDL_TRUE) < 0) {
@@ -414,6 +431,46 @@ void SdlInputHandler::setCaptureActive(bool active)
 
     // Now update the keyboard grab
     updateKeyboardGrabState();
+}
+
+bool SdlInputHandler::initializeMouseBridge(StreamingPreferences& prefs, const QString& streamHost, QString& error)
+{
+    if (!prefs.mouseBridgeEnabled) return true;
+    m_MouseBridge.reset(new MouseBridge);
+    if (!m_MouseBridge->initialize(prefs.mouseBridgeDevice,
+                                 prefs.mouseBridgeHost.trimmed().isEmpty() ? streamHost : prefs.mouseBridgeHost.trimmed(),
+                                 prefs.swapMouseButtons, prefs.reverseScrollDirection, error)) {
+        m_MouseBridge.reset();
+        return false;
+    }
+    // MouseBridge is a relative physical mouse; SDL absolute input must stay off.
+    m_AbsoluteMouseMode = false;
+    return true;
+}
+
+bool SdlInputHandler::handleMouseBridgeEvent(const SDL_Event& event)
+{
+    if (!m_MouseBridge || !m_MouseBridge->ownsEvent(event)) return false;
+    bool active = event.user.code == 0 && !m_MouseBridge->isCaptured();
+    m_MouseBridgeUserReleased = !active;
+    if (active) SDL_RaiseWindow(m_Window);
+    setCaptureActive(active);
+    raiseAllKeys();
+    // setCaptureActive() already displayed the precise regrab error.
+    if (active && !m_MouseBridge->isCaptured()) return true;
+    auto& overlay = Session::get()->getOverlayManager();
+    if (!m_MouseBridge->error().isEmpty()) {
+        overlay.updateOverlayText(Overlay::OverlayStatusUpdate, qPrintable(m_MouseBridge->error()));
+        overlay.setOverlayState(Overlay::OverlayStatusUpdate, true);
+    }
+    else if (m_MouseBridgeUserReleased) {
+        overlay.updateOverlayText(Overlay::OverlayStatusUpdate, "Mouse released locally\nCtrl+Alt+Shift+C resumes MouseBridge");
+        overlay.setOverlayState(Overlay::OverlayStatusUpdate, true);
+    }
+    else {
+        overlay.setOverlayState(Overlay::OverlayStatusUpdate, false);
+    }
+    return true;
 }
 
 void SdlInputHandler::handleTouchFingerEvent(SDL_TouchFingerEvent* event)

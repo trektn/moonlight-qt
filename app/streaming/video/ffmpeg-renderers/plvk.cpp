@@ -400,6 +400,9 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
     // Lookup all Vulkan functions we require
     POPULATE_FUNCTION(vkDestroySurfaceKHR);
     POPULATE_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties);
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 34, 100)
+    POPULATE_FUNCTION(vkGetPhysicalDeviceQueueFamilyProperties2);
+#endif
     POPULATE_FUNCTION(vkGetPhysicalDeviceSurfacePresentModesKHR);
     POPULATE_FUNCTION(vkGetPhysicalDeviceSurfaceFormatsKHR);
     POPULATE_FUNCTION(vkEnumeratePhysicalDevices);
@@ -504,17 +507,22 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
         vkDeviceContext->nb_enabled_inst_extensions = m_PlVkInstance->num_extensions;
         vkDeviceContext->enabled_dev_extensions = m_Vulkan->extensions;
         vkDeviceContext->nb_enabled_dev_extensions = m_Vulkan->num_extensions;
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 34, 100)
+        if (!populateQueues(vkDeviceContext)) return false;
+#else
         vkDeviceContext->queue_family_index = m_Vulkan->queue_graphics.index;
         vkDeviceContext->nb_graphics_queues = m_Vulkan->queue_graphics.count;
         vkDeviceContext->queue_family_tx_index = m_Vulkan->queue_transfer.index;
         vkDeviceContext->nb_tx_queues = m_Vulkan->queue_transfer.count;
         vkDeviceContext->queue_family_comp_index = m_Vulkan->queue_compute.index;
         vkDeviceContext->nb_comp_queues = m_Vulkan->queue_compute.count;
+#endif
 #if LIBAVUTIL_VERSION_INT > AV_VERSION_INT(58, 9, 100)
         vkDeviceContext->lock_queue = lockQueue;
         vkDeviceContext->unlock_queue = unlockQueue;
 #endif
 
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(59, 34, 100)
         static_assert(sizeof(vkDeviceContext->queue_family_decode_index) == sizeof(uint32_t), "sizeof(int) != sizeof(uint32_t)");
         static_assert(sizeof(vkDeviceContext->nb_decode_queues) == sizeof(uint32_t), "sizeof(int) != sizeof(uint32_t)");
         if (!getQueue(VK_QUEUE_VIDEO_DECODE_BIT_KHR, (uint32_t*)&vkDeviceContext->queue_family_decode_index, (uint32_t*)&vkDeviceContext->nb_decode_queues)) {
@@ -522,6 +530,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
                         "Vulkan video decoding is not supported by the Vulkan device");
             return false;
         }
+#endif
 
         int err = av_hwdevice_ctx_init(m_HwDeviceCtx);
         if (err < 0) {
@@ -579,6 +588,34 @@ bool PlVkRenderer::mapAvFrameToPlacebo(const AVFrame *frame, pl_frame* mappedFra
     mappedFrame->repr.levels = PL_COLOR_LEVELS_FULL;
 
     return true;
+}
+
+bool PlVkRenderer::populateQueues(AVVulkanDeviceContext* context)
+{
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(59, 34, 100)
+    uint32_t count = 0;
+    fn_vkGetPhysicalDeviceQueueFamilyProperties2(m_Vulkan->phys_device, &count, nullptr);
+    if (count > SDL_arraysize(context->qf)) return false;
+    std::vector<VkQueueFamilyProperties2> families(count);
+    std::vector<VkQueueFamilyVideoPropertiesKHR> video(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        video[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_VIDEO_PROPERTIES_KHR;
+        families[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+        families[i].pNext = &video[i];
+    }
+    fn_vkGetPhysicalDeviceQueueFamilyProperties2(m_Vulkan->phys_device, &count, families.data());
+    for (uint32_t i = 0; i < count; ++i) {
+        context->qf[i].idx = i;
+        context->qf[i].num = families[i].queueFamilyProperties.queueCount;
+        context->qf[i].flags = (VkQueueFlagBits)families[i].queueFamilyProperties.queueFlags;
+        context->qf[i].video_caps = (VkVideoCodecOperationFlagBitsKHR)video[i].videoCodecOperations;
+    }
+    context->nb_qf = count;
+    return true;
+#else
+    Q_UNUSED(context);
+    return false;
+#endif
 }
 
 bool PlVkRenderer::getQueue(VkQueueFlags requiredFlags, uint32_t *queueIndex, uint32_t *queueCount)

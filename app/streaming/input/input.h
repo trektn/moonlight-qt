@@ -4,6 +4,7 @@
 #include "backend/computermanager.h"
 
 #include <SDL.h>
+#include "mousebridge.h"
 
 struct GamepadState {
     SDL_GameController* controller;
@@ -110,6 +111,8 @@ public:
     bool isSystemKeyCaptureActive();
 
     void setCaptureActive(bool active);
+    bool initializeMouseBridge(StreamingPreferences& prefs, const QString& streamHost, QString& error);
+    bool handleMouseBridgeEvent(const SDL_Event& event);
 
     bool isMouseInVideoRegion(int mouseX, int mouseY, int windowWidth = -1, int windowHeight = -1);
 
@@ -167,6 +170,8 @@ private:
     Uint32 dragTimerCallback(Uint32 interval, void* param);
 
     SDL_Window* m_Window;
+    std::unique_ptr<MouseBridge> m_MouseBridge;
+    bool m_MouseBridgeUserReleased = false;
     bool m_MultiController;
     bool m_GamepadMouse;
     bool m_SwapMouseButtons;

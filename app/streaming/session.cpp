@@ -1739,6 +1739,18 @@ void Session::execInternal()
     // Initialize the gamepad code with our preferences
     // NB: m_InputHandler must be initialize before starting the connection.
     m_InputHandler = new SdlInputHandler(*m_Preferences, m_StreamConfig.width, m_StreamConfig.height);
+    QString mouseBridgeError;
+    if (!m_InputHandler->initializeMouseBridge(*m_Preferences, m_Computer->activeAddress.address(), mouseBridgeError)) {
+        emit displayLaunchError(mouseBridgeError);
+        delete m_InputHandler;
+        m_InputHandler = nullptr;
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        s_ActiveSession = nullptr;
+        s_ActiveSessionSemaphore.release();
+        emit sessionFinished(0);
+        emit readyForDeletion();
+        return;
+    }
 
     AsyncConnectionStartThread asyncConnThread(this);
     if (!m_ThreadedExec) {
@@ -1996,6 +2008,7 @@ void Session::execInternal()
             continue;
         }
 #endif
+        if (m_InputHandler->handleMouseBridgeEvent(event)) continue;
         switch (event.type) {
         case SDL_QUIT:
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,

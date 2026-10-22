@@ -3,5 +3,11 @@
 
 **/.vs/
 build/
+dist/
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/*.log
+packaging/arch/*.pkg.tar.*
+packaging/arch/moonlight-qt/
 config.tests/*/.qmake.stash
 config.tests/*/Makefile

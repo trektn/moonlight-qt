@@ -1,5 +1,10 @@
 # Moonlight PC
 
+This fork is based on **Moonlight Qt 6.1.0** and adds native Linux MouseBridge
+input with **Ctrl+Alt+Shift+C** release/resume. See [MouseBridge setup and the
+Arch package build](MOUSEBRIDGE.md). The receiver address defaults to the
+connected Moonlight host.
+
 [Moonlight PC](https://moonlight-stream.org) is an open source PC client for NVIDIA GameStream and [Sunshine](https://github.com/LizardByte/Sunshine).
 
 Moonlight also has mobile versions for [Android](https://github.com/moonlight-stream/moonlight-android) and [iOS](https://github.com/moonlight-stream/moonlight-ios).

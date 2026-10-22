@@ -1,0 +1,48 @@
+# Maintainer: trektn
+pkgname=moonlight-qt-mousebridge
+pkgver=6.1.0.mb1
+pkgrel=1
+pkgdesc='Moonlight Qt 6.1.0 with native Linux MouseBridge/VMulti capture toggle'
+arch=('x86_64')
+url='https://github.com/trektn/moonlight-qt'
+license=('GPL-3.0-or-later')
+depends=('qt6-base' 'qt6-declarative' 'qt6-svg' 'ffmpeg' 'sdl2' 'sdl2_ttf'
+         'openssl' 'opus' 'libva' 'libvdpau' 'libdrm' 'libplacebo' 'libx11'
+         'wayland' 'libglvnd')
+makedepends=('git' 'qt6-tools' 'ffnvcodec-headers')
+optdepends=('qt6-wayland: native Wayland GUI support')
+provides=('moonlight-qt=6.1.0')
+conflicts=('moonlight-qt' 'moonlight-qt-git' 'moonlight-qt-bin')
+options=('!debug' '!lto')
+source=('moonlight-qt::git+https://github.com/trektn/moonlight-qt.git#tag=v6.1.0-mousebridge.1')
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$srcdir/moonlight-qt"
+    git submodule update --init --recursive --depth 1 -- \
+        app/SDL_GameControllerDB h264bitstream/h264bitstream \
+        moonlight-common-c/moonlight-common-c qmdnsengine/qmdnsengine
+}
+
+build() {
+    mkdir -p "$srcdir/build"
+    cd "$srcdir/build"
+    qmake6 "$srcdir/moonlight-qt/moonlight-qt.pro" CONFIG+=release PREFIX=/usr \
+        QMAKE_CFLAGS="$CFLAGS" QMAKE_CXXFLAGS="$CXXFLAGS" QMAKE_LFLAGS="$LDFLAGS"
+    make release
+}
+
+check() {
+    mkdir -p "$srcdir/test-build"
+    cd "$srcdir/test-build"
+    qmake6 "$srcdir/moonlight-qt/tests/mousebridge/mousebridge-test.pro"
+    make
+    ./mousebridge-test
+}
+
+package() {
+    cd "$srcdir/build/app"
+    make INSTALL_ROOT="$pkgdir" install
+    install -Dm644 "$srcdir/moonlight-qt/MOUSEBRIDGE.md" "$pkgdir/usr/share/doc/$pkgname/MOUSEBRIDGE.md"
+    install -Dm644 "$srcdir/moonlight-qt/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
