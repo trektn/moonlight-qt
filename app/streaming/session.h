@@ -123,6 +123,7 @@ public:
     }
 
     void flushWindowEvents();
+    QString mouseBridgeStats() const;
 
 signals:
     void stageStarting(QString stage);
@@ -258,6 +259,9 @@ private:
     bool m_ThreadedExec;
     bool m_UnexpectedTermination;
     SdlInputHandler* m_InputHandler;
+    // Set before decoder threads start; weak ownership permits safe stats reads
+    // while the input handler is being torn down at the end of a stream.
+    std::weak_ptr<MouseBridge> m_MouseBridgeStats;
     int m_MouseEmulationRefCount;
     int m_FlushingWindowEventsRef;
 

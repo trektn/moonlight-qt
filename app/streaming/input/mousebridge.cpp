@@ -12,6 +12,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <time.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -67,6 +68,30 @@ struct MouseBridge::Impl {
     QString failure;
     QString inputRoot;
     Clock::time_point lastSend = Clock::now();
+    Clock::time_point statsStart = Clock::now();
+    uint64_t reports = 0, packets = 0, sendErrors = 0, overruns = 0;
+    uint64_t delaySamples = 0, delayTotalNs = 0, delayMaxNs = 0, pendingEventNs = 0;
+    double reportHz = 0, packetHz = 0, delayAverageMs = 0, delayMaximumMs = 0;
+    bool monotonicEvents = false, haveDelay = false;
+
+    void updateStats() {
+        const auto now = Clock::now();
+        const double seconds = std::chrono::duration<double>(now - statsStart).count();
+        if (seconds < 1.0) return;
+        reportHz = reports / seconds;
+        packetHz = packets / seconds;
+        haveDelay = delaySamples != 0;
+        delayAverageMs = haveDelay ? double(delayTotalNs) / delaySamples / 1e6 : 0;
+        delayMaximumMs = double(delayMaxNs) / 1e6;
+        reports = packets = delaySamples = delayTotalNs = delayMaxNs = 0;
+        statsStart = now;
+    }
+
+    void noteEvent(const input_event& event) {
+        if (!monotonicEvents || pendingEventNs) return;
+        pendingEventNs = uint64_t(event.time.tv_sec) * 1000000000ULL +
+                         uint64_t(event.time.tv_usec) * 1000ULL;
+    }
 
     unsigned buttonState(const KeyBits& keys) const {
         unsigned state = 0;
@@ -81,9 +106,25 @@ struct MouseBridge::Impl {
         int w = int(std::max<int64_t>(-127, std::min<int64_t>(127, wheel)));
         char packet[128];
         int length = snprintf(packet, sizeof(packet), "{\"dx\":%d,\"dy\":%d,\"wheel\":%d,\"buttons\":%u}", x, y, w, buttons);
-        ::send(socket, packet, length, MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (::send(socket, packet, length, MSG_DONTWAIT | MSG_NOSIGNAL) == length) {
+            ++packets;
+            if (pendingEventNs) {
+                timespec now{};
+                if (clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
+                    const uint64_t nowNs = uint64_t(now.tv_sec) * 1000000000ULL + now.tv_nsec;
+                    if (nowNs >= pendingEventNs) {
+                        const auto delay = nowNs - pendingEventNs;
+                        ++delaySamples;
+                        delayTotalNs += delay;
+                        delayMaxNs = std::max(delayMaxNs, delay);
+                    }
+                }
+            }
+        }
+        else ++sendErrors;
         dx -= x; dy -= y; wheel -= w;
         dirty = dx || dy || wheel;
+        if (!dirty) pendingEventNs = 0;
         lastSend = Clock::now();
     }
 
@@ -91,6 +132,7 @@ struct MouseBridge::Impl {
         dx = dy = wheel = 0;
         buttons = 0;
         dirty = false;
+        pendingEventNs = 0;
         if (socket >= 0) send();
         if (captured) ioctl(mouse, EVIOCGRAB, 0);
         captured = false;
@@ -136,6 +178,8 @@ struct MouseBridge::Impl {
                     for (ssize_t i = 0; i < bytes / ssize_t(sizeof(input_event)); ++i) {
                         const auto& event = events[i];
                         if (event.type == EV_SYN && event.code == SYN_DROPPED) {
+                            ++overruns;
+                            pendingEventNs = 0;
                             dropped = true;
                             dx = dy = wheel = 0;
                         }
@@ -148,13 +192,19 @@ struct MouseBridge::Impl {
                                 dropped = false;
                             }
                         }
+                        else if (event.type == EV_SYN && event.code == SYN_REPORT) {
+                            ++reports;
+                        }
                         else if (event.type == EV_REL) {
+                            if (event.code != REL_X && event.code != REL_Y && event.code != REL_WHEEL) continue;
+                            noteEvent(event);
                             if (event.code == REL_X) dx += event.value;
                             if (event.code == REL_Y) dy += event.value;
                             if (event.code == REL_WHEEL) wheel += reverse ? -event.value : event.value;
                             dirty = true;
                         }
                         else if (event.type == EV_KEY && event.code >= BTN_LEFT && event.code <= BTN_EXTRA) {
+                            noteEvent(event);
                             unsigned index = event.code - BTN_LEFT;
                             if (swap && index < 2) index ^= 1;
                             if (event.value) buttons |= 1u << index;
@@ -211,6 +261,7 @@ struct MouseBridge::Impl {
             std::lock_guard<std::mutex> lock(mutex);
             auto elapsed = Clock::now() - lastSend;
             if ((dirty && elapsed >= std::chrono::milliseconds(1)) || elapsed >= std::chrono::milliseconds(50)) send();
+            updateStats();
         }
     }
 };
@@ -284,6 +335,8 @@ bool MouseBridge::initialize(const QString& device, const QString& host, bool sw
     m_Impl->mouse = open(QFile::encodeName(device).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (m_Impl->mouse < 0) { error = inputError("Cannot open MouseBridge mouse " + device); return false; }
     if (!relativeMouse(m_Impl->mouse)) { error = "The selected MouseBridge device is not a relative mouse."; return false; }
+    int eventClock = CLOCK_MONOTONIC;
+    m_Impl->monotonicEvents = ioctl(m_Impl->mouse, EVIOCSCLOCKID, &eventClock) == 0;
     KeyBits supported{};
     for (const auto& entry : QDir(m_Impl->inputRoot).entryInfoList({"event*"}, QDir::System | QDir::Files)) {
         if (entry.canonicalFilePath() == QFileInfo(device).canonicalFilePath()) continue;
@@ -361,6 +414,22 @@ QString MouseBridge::error() const {
 #ifdef Q_OS_LINUX
     std::lock_guard<std::mutex> lock(m_Impl->mutex);
     return m_Impl->failure;
+#else
+    return {};
+#endif
+}
+
+QString MouseBridge::statsText() const {
+#ifdef Q_OS_LINUX
+    std::lock_guard<std::mutex> lock(m_Impl->mutex);
+    const auto& s = *m_Impl;
+    const QString delay = s.haveDelay
+        ? QString("avg %1 ms | max %2 ms").arg(s.delayAverageMs, 0, 'f', 2).arg(s.delayMaximumMs, 0, 'f', 2)
+        : QStringLiteral("n/a (no timestamped input in last second)");
+    return QString("\nMouseBridge: %1 | input %2 Hz | UDP %3 pkt/s\nMouse local event -> UDP: %4\nMouse send errors: %5 | input overruns: %6")
+        .arg(s.captured ? QStringLiteral("captured") : QStringLiteral("released"))
+        .arg(s.reportHz, 0, 'f', 0).arg(s.packetHz, 0, 'f', 0).arg(delay)
+        .arg(qulonglong(s.sendErrors)).arg(qulonglong(s.overruns));
 #else
     return {};
 #endif

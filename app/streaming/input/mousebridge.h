@@ -19,6 +19,7 @@ public:
     bool setCaptured(bool active, QString& error);
     bool isCaptured() const;
     QString error() const;
+    QString statsText() const;
     bool ownsEvent(const SDL_Event& event) const;
 
 private:

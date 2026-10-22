@@ -59,6 +59,7 @@ public:
     ~SdlInputHandler();
 
     void setWindow(SDL_Window* window);
+    std::weak_ptr<MouseBridge> mouseBridge() const { return m_MouseBridge; }
 
     void handleKeyEvent(SDL_KeyboardEvent* event);
 
@@ -170,7 +171,7 @@ private:
     Uint32 dragTimerCallback(Uint32 interval, void* param);
 
     SDL_Window* m_Window;
-    std::unique_ptr<MouseBridge> m_MouseBridge;
+    std::shared_ptr<MouseBridge> m_MouseBridge;
     bool m_MouseBridgeUserReleased = false;
     bool m_MultiController;
     bool m_GamepadMouse;

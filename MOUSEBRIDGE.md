@@ -50,6 +50,25 @@ Keyboard and gamepad streaming continue through Moonlight.
 - Resuming requests focus for the Moonlight window. A Wayland compositor may
   require you to focus Moonlight yourself before streamed keyboard input resumes.
 
+## Mouse performance overlay
+
+Press **Ctrl+Alt+Shift+S** during a stream to show the existing Moonlight
+performance overlay, including MouseBridge statistics when it is enabled:
+
+- Capture state and measured evdev report rate in Hz.
+- Successfully sent UDP packets per second, including idle heartbeats.
+- Average and maximum local event-to-UDP delay over the previous second.
+- Cumulative UDP send errors and evdev input overruns for this stream.
+
+Delay starts at the kernel's monotonic evdev timestamp for the oldest mouse
+event in each packet and ends after the local UDP send call succeeds. It includes
+local scheduling and batching, but excludes network transit, Windows/VMulti
+processing, and display latency. UDP send success does not confirm receipt or
+measure packet loss. Idle or released mice show zero input rate and no delay
+samples; delay is also unavailable if the device cannot supply monotonic timestamps.
+Rates refresh approximately once per second. A mouse must be moving to measure
+its active report rate; the 1 ms sender interval is a target, not a guarantee.
+
 ## Build the Arch package
 
 From `packaging/arch`, run `makepkg -s`. The recipe checks out the pinned fork

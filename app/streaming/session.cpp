@@ -1716,6 +1716,12 @@ void Session::exec(QWindow* qtWindow)
     }
 }
 
+QString Session::mouseBridgeStats() const
+{
+    const auto bridge = m_MouseBridgeStats.lock();
+    return bridge ? bridge->statsText() : QString();
+}
+
 void Session::execInternal()
 {
     // Complete initialization in this deferred context to avoid
@@ -1751,6 +1757,8 @@ void Session::execInternal()
         emit readyForDeletion();
         return;
     }
+
+    m_MouseBridgeStats = m_InputHandler->mouseBridge();
 
     AsyncConnectionStartThread asyncConnThread(this);
     if (!m_ThreadedExec) {

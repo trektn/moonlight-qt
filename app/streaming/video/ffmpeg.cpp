@@ -1775,6 +1775,9 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
             stringifyVideoStats(lastTwoWndStats,
                                 Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug),
                                 Session::get()->getOverlayManager().getOverlayMaxTextLength());
+            const QByteArray mouseStats = Session::get()->mouseBridgeStats().toUtf8();
+            SDL_strlcat(Session::get()->getOverlayManager().getOverlayText(Overlay::OverlayDebug),
+                        mouseStats.constData(), Session::get()->getOverlayManager().getOverlayMaxTextLength());
             Session::get()->getOverlayManager().setOverlayTextUpdated(Overlay::OverlayDebug);
         }
 
