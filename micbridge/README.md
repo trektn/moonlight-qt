@@ -28,6 +28,12 @@ plays into **Speakers (Steam Streaming Microphone)**; games, Discord and other v
 apps should record **Microphone (Steam Streaming Microphone)**. It never falls back
 to default physical speakers and does not change Windows default audio devices.
 
+Receiver 1.2 normalizes both Steam microphone endpoints to stereo, 32-bit, 48 kHz
+on startup, and writes stereo float32 directly to WASAPI. Mismatched render/capture
+formats on this driver can produce severe digital noise despite successful packet
+delivery. Reopen a Windows mic test or voice app after the format is corrected.
+Only the Steam microphone pair is normalized. The network remains mono 16-bit PCM.
+
 From an elevated PowerShell, beside the extracted Windows bundle:
 
 ```powershell
@@ -63,9 +69,14 @@ Disable-ScheduledTask -TaskName 'MicBridge Receiver'
   payload). Flags 1/count 0 means stream end (16-byte payload).
 - New streams get a random ID. A 15 ms initial reorder buffer absorbs short packet
   jitter. Missing packets become silence, late packets are discarded, and excess
-  backlog is trimmed at 60 ms. No retransmission or microphone audio is saved.
-- WASAPI shared mode converts the mono PCM to the virtual endpoint format.
-  Its actual output buffer size is logged. These are buffering settings, not a
+  backlog is trimmed back to 20 ms if it grows beyond six packets (30 ms).
+  No retransmission or microphone audio is saved.
+- WASAPI receives stereo float32 48 kHz, with the mono network samples copied to
+  both channels. On the Steam pair no automatic format conversion is requested.
+  The receiver waits on network and audio events together and targets one engine
+  period of output padding (10 ms on the tested Windows host), rather than filling
+  the entire 22 ms device buffer. Its actual output capacity and padding target
+  are logged. These are buffering settings, not a
   measured end-to-end latency guarantee. The local overlay measures sends, not
   confirmed delivery. Receiver logs include missing packets and underruns.
 - Stream end or 300 ms inactivity clears queued input; the Windows endpoint

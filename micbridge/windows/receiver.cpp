@@ -6,6 +6,8 @@
 #include <audioclient.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <avrt.h>
+#include <ksmedia.h>
+#include "policyformat.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -41,6 +43,54 @@ static void put64(unsigned char* p, uint64_t value) {
 static volatile LONG running = 1;
 static BOOL WINAPI control(DWORD) { InterlockedExchange(&running, 0); return TRUE; }
 
+static void normalizeSteamPair(IMMDeviceEnumerator* enumerator) {
+    Com<IPolicyFormat> policy;
+    check(CoCreateInstance(MicPolicyClass, nullptr, CLSCTX_ALL,
+                           MicPolicyInterface, reinterpret_cast<void**>(policy.put())), "Open Steam mic format policy");
+    for (auto flow : {eRender, eCapture}) {
+        Com<IMMDeviceCollection> endpoints;
+        check(enumerator->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, endpoints.put()), "Find Steam microphone pair");
+        UINT count = 0; check(endpoints->GetCount(&count), "Count Steam endpoints");
+        bool matched = false;
+        for (UINT i = 0; i < count; ++i) {
+            Com<IMMDevice> device; check(endpoints->Item(i, device.put()), "Get Steam endpoint");
+            Com<IPropertyStore> properties; check(device->OpenPropertyStore(STGM_READ, properties.put()), "Get Steam endpoint properties");
+            PROPVARIANT name; PropVariantInit(&name);
+            check(properties->GetValue(PKEY_Device_FriendlyName, &name), "Get Steam endpoint name");
+            const std::wstring text = name.vt == VT_LPWSTR ? name.pwszVal : L"";
+            PropVariantClear(&name);
+            if (text.find(L"Steam Streaming Microphone") == std::wstring::npos) continue;
+            matched = true;
+            LPWSTR id = nullptr; check(device->GetId(&id), "Get Steam endpoint ID");
+            WAVEFORMATEX* previous = nullptr;
+            HRESULT result = policy->GetDeviceFormat(id, FALSE, &previous);
+            if (FAILED(result)) { CoTaskMemFree(id); check(result, "Query Steam endpoint device format"); }
+            const bool correct = previous && previous->nChannels == 2 && previous->nSamplesPerSec == 48000 && previous->wBitsPerSample == 32;
+            if (previous) {
+                printf("Steam %s device format: %lu Hz, %u channels, %u-bit%s\n",
+                       flow == eRender ? "render" : "capture", previous->nSamplesPerSec,
+                       previous->nChannels, previous->wBitsPerSample, correct ? " (matched)" : " (normalizing)");
+            }
+            if (!correct) {
+                WAVEFORMATEXTENSIBLE format{};
+                format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+                format.Format.nChannels = 2; format.Format.nSamplesPerSec = 48000;
+                format.Format.wBitsPerSample = 32; format.Format.nBlockAlign = 8;
+                format.Format.nAvgBytesPerSec = 384000; format.Format.cbSize = 22;
+                format.Samples.wValidBitsPerSample = 32;
+                format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+                format.SubFormat = MicPcmSubtype;
+                WAVEFORMATEXTENSIBLE previousFormat{};
+                result = policy->SetDeviceFormat(id, &format.Format, &previousFormat.Format);
+            }
+            CoTaskMemFree(previous); CoTaskMemFree(id);
+            check(result, "Set Steam microphone pair to stereo 32-bit 48 kHz");
+        }
+        if (!matched) throw std::runtime_error("Both Steam microphone render and capture endpoints must be enabled");
+    }
+    fflush(stdout);
+}
+
 int wmain(int argc, wchar_t** argv) {
     std::wstring deviceName = L"Steam Streaming Microphone", allowed;
     bool list = false;
@@ -53,6 +103,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     SOCKET socket = INVALID_SOCKET;
     HANDLE event = nullptr, instance = nullptr, priority = nullptr;
+    WSAEVENT networkEvent = WSA_INVALID_EVENT;
     bool comInitialized = false, winsockInitialized = false;
     int exitCode = 0;
     try {
@@ -90,36 +141,50 @@ int wmain(int argc, wchar_t** argv) {
                 throw std::runtime_error("Specify the Linux client's IPv4 address with --allow");
             instance = CreateMutexW(nullptr, FALSE, L"Local\\MicBridgeReceiver-39842");
             if (!instance || GetLastError() == ERROR_ALREADY_EXISTS) throw std::runtime_error("MicBridge receiver already running in this session");
+            const bool steam = selectedName.find(L"Steam Streaming Microphone") != std::wstring::npos;
+            if (steam) normalizeSteamPair(enumerator.p);
             socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             if (socket == INVALID_SOCKET) throw std::runtime_error("Create UDP socket failed");
             sockaddr_in address{}; address.sin_family = AF_INET; address.sin_port = htons(39842);
             if (bind(socket, reinterpret_cast<sockaddr*>(&address), sizeof(address))) throw std::runtime_error("Bind UDP 39842 failed (another receiver may be running)");
             u_long nonblocking = 1; ioctlsocket(socket, FIONBIO, &nonblocking);
+            networkEvent = WSACreateEvent();
+            if (networkEvent == WSA_INVALID_EVENT || WSAEventSelect(socket, networkEvent, FD_READ) == SOCKET_ERROR)
+                throw std::runtime_error("Create microphone network event failed");
             int receiveBuffer = 65536;
             setsockopt(socket, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&receiveBuffer), sizeof(receiveBuffer));
             Com<IAudioClient> audio;
             check(selected->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                       reinterpret_cast<void**>(audio.put())), "Open virtual microphone playback");
-            WAVEFORMATEX format{};
-            format.wFormatTag = WAVE_FORMAT_PCM; format.nChannels = 1; format.nSamplesPerSec = 48000;
-            format.wBitsPerSample = 16; format.nBlockAlign = 2; format.nAvgBytesPerSec = 96000;
+            WAVEFORMATEXTENSIBLE format{};
+            format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+            format.Format.nChannels = 2; format.Format.nSamplesPerSec = 48000;
+            format.Format.wBitsPerSample = 32; format.Format.nBlockAlign = 8;
+            format.Format.nAvgBytesPerSec = 384000; format.Format.cbSize = 22;
+            format.Samples.wValidBitsPerSample = 32;
+            format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+            format.SubFormat = MicFloatSubtype;
             check(audio->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-                                    200000, 0, &format, nullptr), "Initialize 48 kHz microphone render stream");
+                                    AUDCLNT_STREAMFLAGS_EVENTCALLBACK | (steam ? 0 : AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY),
+                                    0, 0, &format.Format, nullptr), "Initialize stereo float32 48 kHz microphone render stream");
             event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
             if (!event) throw std::runtime_error("Create audio event failed");
             check(audio->SetEventHandle(event), "Set audio event");
             UINT32 bufferFrames = 0; check(audio->GetBufferSize(&bufferFrames), "Get audio buffer size");
+            REFERENCE_TIME defaultPeriod = 0;
+            check(audio->GetDevicePeriod(&defaultPeriod, nullptr), "Get microphone output period");
+            // Keep one engine period queued, rather than filling the entire device buffer.
+            const UINT32 targetFrames = std::min(bufferFrames, std::max(UINT32(240), UINT32((defaultPeriod * 48000 + 9999999) / 10000000)));
             Com<IAudioRenderClient> render;
             check(audio->GetService(__uuidof(IAudioRenderClient), reinterpret_cast<void**>(render.put())), "Get render service");
             BYTE* output = nullptr;
-            check(render->GetBuffer(bufferFrames, &output), "Prime audio output");
-            check(render->ReleaseBuffer(bufferFrames, AUDCLNT_BUFFERFLAGS_SILENT), "Prime silence");
+            check(render->GetBuffer(targetFrames, &output), "Prime audio output");
+            check(render->ReleaseBuffer(targetFrames, AUDCLNT_BUFFERFLAGS_SILENT), "Prime silence");
             DWORD taskIndex = 0; priority = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
             SetConsoleCtrlHandler(control, TRUE);
             check(audio->Start(), "Start microphone output");
-            wprintf(L"MicBridge 1.1: UDP 39842 from %ls -> %ls\nSelect Microphone (Steam Streaming Microphone) in your voice app.\n", allowed.c_str(), selectedName.c_str());
-            printf("48 kHz mono PCM, 5 ms packets; 15 ms startup jitter buffer; WASAPI buffer %.1f ms.\n", bufferFrames / 48.0);
+            wprintf(L"MicBridge 1.2: UDP 39842 from %ls -> %ls\nSelect Microphone (Steam Streaming Microphone) in your voice app.\n", allowed.c_str(), selectedName.c_str());
+            printf("Network: 48 kHz mono PCM, 5 ms packets; output: stereo float32 48 kHz.\n15 ms startup jitter buffer; WASAPI capacity %.1f ms, target padding %.1f ms.\n", bufferFrames / 48.0, targetFrames / 48.0);
             fflush(stdout);
             std::map<uint32_t, std::array<int16_t, 240>> queue;
             std::array<int16_t, 240> current{};
@@ -132,6 +197,12 @@ int wmain(int argc, wchar_t** argv) {
             uint32_t echoSequence = 0;
             uint64_t received = 0, missing = 0, late = 0, underruns = 0, trimmed = 0;
             while (InterlockedCompareExchange(&running, 1, 1)) {
+                HANDLE events[] = {event, networkEvent};
+                const DWORD ready = WaitForMultipleObjects(2, events, FALSE, 20);
+                if (ready == WAIT_FAILED) throw std::runtime_error("Wait for microphone input/output failed");
+                WSANETWORKEVENTS network{};
+                if (WSAEnumNetworkEvents(socket, networkEvent, &network) == SOCKET_ERROR)
+                    throw std::runtime_error("Read microphone network events failed");
                 // Drain a bounded batch so an incoming flood cannot starve WASAPI.
                 for (int batch = 0; batch < 128; ++batch) {
                     unsigned char packet[1024]; sockaddr_in peer{}; int peerSize = sizeof(peer);
@@ -164,10 +235,13 @@ int wmain(int argc, wchar_t** argv) {
                     auto& samples = queue[sequence];
                     for (unsigned i = 0; i < 240; ++i)
                         samples[i] = int16_t(uint16_t(packet[16 + 2 * i]) | uint16_t(packet[17 + 2 * i]) << 8);
-                    if (queue.size() > 12) {
-                        // Bound latency instead of replaying a growing backlog.
-                        auto newest = queue[sequence]; queue.clear(); queue[sequence] = newest;
-                        next = sequence; offset = 240; primed = false; ++trimmed;
+                    if (queue.size() > 6) {
+                        // Keep enough headroom for batched Linux capture delivery,
+                        // while trimming old audio back to 20 ms when it grows.
+                        offset = 240;
+                        while (queue.size() > 4) {
+                            queue.erase(next++); ++trimmed;
+                        }
                     }
                 }
                 const auto now = GetTickCount64();
@@ -176,22 +250,22 @@ int wmain(int argc, wchar_t** argv) {
                     puts("Microphone stream idle; output is silent."); fflush(stdout);
                 }
                 if (!primed && queue.size() >= 3) primed = true;
-                if (WaitForSingleObject(event, 2) == WAIT_OBJECT_0) {
+                if (ready == WAIT_OBJECT_0 || WaitForSingleObject(event, 0) == WAIT_OBJECT_0) {
                     UINT32 padding = 0; check(audio->GetCurrentPadding(&padding), "Get microphone padding");
-                    const UINT32 framesAvailable = bufferFrames - padding;
+                    const UINT32 framesAvailable = padding < targetFrames ? targetFrames - padding : 0;
                     if (framesAvailable) {
                         check(render->GetBuffer(framesAvailable, &output), "Get microphone output buffer");
-                        auto* pcm = reinterpret_cast<int16_t*>(output);
+                        auto* pcm = reinterpret_cast<float*>(output);
                         bool starved = false;
                         for (UINT32 i = 0; i < framesAvailable; ++i) {
-                            if (!primed) { pcm[i] = 0; continue; }
+                            if (!primed) { pcm[2 * i] = pcm[2 * i + 1] = 0; continue; }
                             if (offset == 240) {
                                 auto found = queue.find(next);
                                 if (found != queue.end()) { current = found->second; queue.erase(found); ++next; offset = 0; }
                                 else if (!queue.empty()) { current.fill(0); ++next; offset = 0; ++missing; }
-                                else { pcm[i] = 0; starved = true; continue; }
+                                else { pcm[2 * i] = pcm[2 * i + 1] = 0; starved = true; continue; }
                             }
-                            pcm[i] = current[offset++];
+                            pcm[2 * i] = pcm[2 * i + 1] = current[offset++] / 32768.0f;
                         }
                         if (starved && active) ++underruns;
                         check(render->ReleaseBuffer(framesAvailable, 0), "Submit microphone output");
@@ -224,6 +298,7 @@ int wmain(int argc, wchar_t** argv) {
     } catch (const std::exception& e) { fprintf(stderr, "MicBridge: %s\n", e.what()); exitCode = 1; }
     if (priority) AvRevertMmThreadCharacteristics(priority);
     if (socket != INVALID_SOCKET) closesocket(socket);
+    if (networkEvent != WSA_INVALID_EVENT) WSACloseEvent(networkEvent);
     if (event) CloseHandle(event);
     if (instance) CloseHandle(instance);
     if (winsockInitialized) WSACleanup();
