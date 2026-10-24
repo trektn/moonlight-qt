@@ -1989,7 +1989,7 @@ void Session::execInternal()
             SDL_LogError(SDL_LOG_CATEGORY_AUDIO, "%s", qPrintable(error));
             m_OverlayManager.updateOverlayText(Overlay::OverlayStatusUpdate, qPrintable(error));
             m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, true);
-            micBridge.reset();
+            // Keep the failed bridge alive so Ctrl+Alt+Shift+S retains its error.
         }
     }
 

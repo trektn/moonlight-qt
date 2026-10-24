@@ -32,6 +32,12 @@ static uint32_t be32(const unsigned char* p) {
     return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3];
 }
 static unsigned be16(const unsigned char* p) { return unsigned(p[0]) << 8 | p[1]; }
+static void put32(unsigned char* p, uint32_t value) {
+    for (int i = 3; i >= 0; --i) { p[i] = (unsigned char)value; value >>= 8; }
+}
+static void put64(unsigned char* p, uint64_t value) {
+    for (int i = 7; i >= 0; --i) { p[i] = (unsigned char)value; value >>= 8; }
+}
 static volatile LONG running = 1;
 static BOOL WINAPI control(DWORD) { InterlockedExchange(&running, 0); return TRUE; }
 
@@ -112,7 +118,7 @@ int wmain(int argc, wchar_t** argv) {
             DWORD taskIndex = 0; priority = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
             SetConsoleCtrlHandler(control, TRUE);
             check(audio->Start(), "Start microphone output");
-            wprintf(L"MicBridge 1.0: UDP 39842 from %ls -> %ls\nSelect Microphone (Steam Streaming Microphone) in your voice app.\n", allowed.c_str(), selectedName.c_str());
+            wprintf(L"MicBridge 1.1: UDP 39842 from %ls -> %ls\nSelect Microphone (Steam Streaming Microphone) in your voice app.\n", allowed.c_str(), selectedName.c_str());
             printf("48 kHz mono PCM, 5 ms packets; 15 ms startup jitter buffer; WASAPI buffer %.1f ms.\n", bufferFrames / 48.0);
             fflush(stdout);
             std::map<uint32_t, std::array<int16_t, 240>> queue;
@@ -121,6 +127,9 @@ int wmain(int argc, wchar_t** argv) {
             uint32_t session = 0, next = 0;
             bool active = false, primed = false;
             ULONGLONG lastPacket = 0, lastLog = GetTickCount64();
+            ULONGLONG lastFeedback = 0;
+            sockaddr_in feedbackPeer{};
+            uint32_t echoSequence = 0;
             uint64_t received = 0, missing = 0, late = 0, underruns = 0, trimmed = 0;
             while (InterlockedCompareExchange(&running, 1, 1)) {
                 // Drain a bounded batch so an incoming flood cannot starve WASAPI.
@@ -143,9 +152,12 @@ int wmain(int argc, wchar_t** argv) {
                     if (flags || frames != 240 || bytes != 496) continue;
                     if (!active || id != session || GetTickCount64() - lastPacket > 300) {
                         queue.clear(); offset = 240; next = sequence; session = id; active = true; primed = false;
+                        received = missing = late = underruns = trimmed = 0;
+                        lastFeedback = 0;
                         puts("Microphone stream connected."); fflush(stdout);
                     }
                     lastPacket = GetTickCount64(); ++received;
+                    feedbackPeer = peer; echoSequence = sequence;
                     const int32_t distance = int32_t(sequence - next);
                     if (distance < 0) { ++late; continue; }
                     if (distance > 64) { queue.clear(); offset = 240; next = sequence; primed = false; ++trimmed; }
@@ -190,6 +202,21 @@ int wmain(int argc, wchar_t** argv) {
                            (unsigned long long)received, (unsigned long long)missing, (unsigned long long)late,
                            (unsigned long long)underruns, (unsigned long long)trimmed, queue.size());
                     fflush(stdout); lastLog = now;
+                }
+                if (active && now - lastFeedback >= 500) {
+                    UINT32 padding = 0;
+                    check(audio->GetCurrentPadding(&padding), "Get feedback padding");
+                    unsigned char report[72]{};
+                    memcpy(report, "MCS1", 4);
+                    put32(report + 4, session); put32(report + 8, echoSequence);
+                    put32(report + 12, uint32_t(queue.size() * 240 + (offset < 240 ? 240 - offset : 0)));
+                    put32(report + 16, padding); put32(report + 20, bufferFrames);
+                    put64(report + 24, received); put64(report + 32, missing); put64(report + 40, late);
+                    put64(report + 48, underruns); put64(report + 56, trimmed);
+                    put32(report + 68, primed ? 1 : 0);
+                    sendto(socket, reinterpret_cast<const char*>(report), sizeof(report), 0,
+                           reinterpret_cast<const sockaddr*>(&feedbackPeer), sizeof(feedbackPeer));
+                    lastFeedback = now;
                 }
             }
             audio->Stop();

@@ -10,7 +10,15 @@ In Moonlight **Settings → Audio Settings**, enable **Forward microphone to hos
 Leave the receiver address blank to use the connected Moonlight host. Start a new
 stream after changing settings. Recording starts only when the stream is ready,
 and stops when it ends. Capture continues while unfocused or the mouse is released.
-The performance overlay (**Ctrl+Alt+Shift+S**) shows live microphone level and sends.
+The performance overlay (**Ctrl+Alt+Shift+S**) shows capture state and capture errors,
+peak and RMS levels, clipping percentage, send rate and payload bitrate, send errors,
+and receiver feedback. Level and rate measurements cover approximately one second.
+Receiver 1.1 reports its state, packet counts, missing packets at playout, late packets,
+underruns, backlog trims, queued audio, and actual WASAPI output padding/buffer size.
+Counters reset for each microphone stream. Feedback becomes stale after two seconds.
+The feedback RTT includes sender-to-receiver transit, receiver scheduling/acknowledgement
+delay, return transit, and the next Linux capture callback. It is not one-way audio
+latency and does not include playback or microphone application processing.
 If microphone capture fails, an error appears over the stream; video can continue.
 
 ## Windows host
@@ -62,6 +70,13 @@ Disable-ScheduledTask -TaskName 'MicBridge Receiver'
   confirmed delivery. Receiver logs include missing packets and underruns.
 - Stream end or 300 ms inactivity clears queued input; the Windows endpoint
   continues outputting silence. Already submitted WASAPI audio drains normally.
+- Receiver 1.1 sends a 72-byte `MCS1` feedback datagram to the active sender every
+  500 ms. Big-endian fields: stream ID at 4, acknowledged sequence at 8, queued
+  frames at 12, WASAPI padding at 16, buffer frames at 20, uint64 received/missing/
+  late/underrun/trim counters at 24/32/40/48/56, reserved at 64, playing flag at 68.
+  Missing counts represent absent packets at their playout deadline, not an exact
+  network loss percentage. Underruns count output fills that ran out of queued audio.
+  The audio packet format is unchanged; older receivers work without feedback stats.
 
 The Steam endpoint pairing is also used in
 [Apollo's microphone implementation](https://github.com/logabell/apollo-microphone/blob/master/docs/remote_microphone.md).
