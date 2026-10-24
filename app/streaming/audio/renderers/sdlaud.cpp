@@ -7,7 +7,7 @@ SdlAudioRenderer::SdlAudioRenderer()
     : m_AudioDevice(0),
       m_AudioBuffer(nullptr)
 {
-    SDL_assert(!SDL_WasInit(SDL_INIT_AUDIO));
+    // SDL audio initialization is reference counted; MicBridge may also own it.
 
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
@@ -92,7 +92,6 @@ SdlAudioRenderer::~SdlAudioRenderer()
     }
 
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
-    SDL_assert(!SDL_WasInit(SDL_INIT_AUDIO));
 }
 
 void* SdlAudioRenderer::getAudioBuffer(int*)

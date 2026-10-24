@@ -17,6 +17,7 @@ public:
 
     Q_INVOKABLE void save();
     Q_INVOKABLE QVariantList mouseBridgeDevices() const;
+    Q_INVOKABLE QVariantList micBridgeDevices() const;
 
     void reload();
 
@@ -122,6 +123,9 @@ public:
     Q_PROPERTY(bool mouseBridgeEnabled MEMBER mouseBridgeEnabled NOTIFY mouseBridgeChanged)
     Q_PROPERTY(QString mouseBridgeDevice MEMBER mouseBridgeDevice NOTIFY mouseBridgeChanged)
     Q_PROPERTY(QString mouseBridgeHost MEMBER mouseBridgeHost NOTIFY mouseBridgeChanged)
+    Q_PROPERTY(bool micBridgeEnabled MEMBER micBridgeEnabled NOTIFY micBridgeChanged)
+    Q_PROPERTY(QString micBridgeDevice MEMBER micBridgeDevice NOTIFY micBridgeChanged)
+    Q_PROPERTY(QString micBridgeHost MEMBER micBridgeHost NOTIFY micBridgeChanged)
     Q_PROPERTY(bool absoluteTouchMode MEMBER absoluteTouchMode NOTIFY absoluteTouchModeChanged)
     Q_PROPERTY(bool framePacing MEMBER framePacing NOTIFY framePacingChanged)
     Q_PROPERTY(bool connectionWarnings MEMBER connectionWarnings NOTIFY connectionWarningsChanged)
@@ -164,6 +168,9 @@ public:
     bool mouseBridgeEnabled;
     QString mouseBridgeDevice;
     QString mouseBridgeHost;
+    bool micBridgeEnabled;
+    QString micBridgeDevice;
+    QString micBridgeHost;
     bool absoluteTouchMode;
     bool framePacing;
     bool connectionWarnings;
@@ -202,6 +209,7 @@ signals:
     void quitAppAfterChanged();
     void absoluteMouseModeChanged();
     void mouseBridgeChanged();
+    void micBridgeChanged();
     void absoluteTouchModeChanged();
     void audioConfigChanged();
     void videoCodecConfigChanged();

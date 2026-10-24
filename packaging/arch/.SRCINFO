@@ -1,6 +1,6 @@
 pkgbase = moonlight-qt-mousebridge
-	pkgdesc = Moonlight Qt 6.1.0 with native Linux MouseBridge/VMulti capture toggle
-	pkgver = 6.1.0.mb2
+	pkgdesc = Moonlight Qt 6.1.0 with native MouseBridge and microphone passthrough
+	pkgver = 6.1.0.mb3
 	pkgrel = 1
 	url = https://github.com/trektn/moonlight-qt
 	arch = x86_64
@@ -30,7 +30,7 @@ pkgbase = moonlight-qt-mousebridge
 	conflicts = moonlight-qt-bin
 	options = !debug
 	options = !lto
-	source = moonlight-qt::git+https://github.com/trektn/moonlight-qt.git#tag=v6.1.0-mousebridge.2
+	source = moonlight-qt::git+https://github.com/trektn/moonlight-qt.git#tag=v6.1.0-mousebridge.3
 	sha256sums = SKIP
 
 pkgname = moonlight-qt-mousebridge

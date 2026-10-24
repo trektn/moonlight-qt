@@ -882,6 +882,61 @@ Flickable {
                 }
 
 
+                Column {
+                    visible: Qt.platform.os === "linux"
+                    width: parent.width
+                    spacing: 5
+                    CheckBox {
+                        id: micBridgeCheck
+                        text: qsTr("Forward microphone to host (MicBridge)")
+                        font.pointSize: 12
+                        checked: StreamingPreferences.micBridgeEnabled
+                        onToggled: StreamingPreferences.micBridgeEnabled = checked
+                    }
+                    Row {
+                        width: parent.width
+                        spacing: 5
+                        AutoResizingComboBox {
+                            id: micBridgeDeviceCombo
+                            width: parent.width - micBridgeRefresh.width - parent.spacing
+                            enabled: micBridgeCheck.checked
+                            textRole: "name"
+                            popup.background: Rectangle { color: "#424242"; radius: 4; border.color: "#757575" }
+                            function refreshDevices() {
+                                var devices = [{name: qsTr("Default microphone"), device: ""}]
+                                var found = StreamingPreferences.micBridgeDevices()
+                                for (var i = 0; i < found.length; ++i)
+                                    devices.push({name: found[i].name, device: found[i].name})
+                                var saved = StreamingPreferences.micBridgeDevice
+                                var selected = 0
+                                for (var j = 0; j < devices.length; ++j)
+                                    if (devices[j].device === saved) selected = j
+                                if (saved && selected === 0) {
+                                    devices.push({name: saved + qsTr(" (unavailable)"), device: saved})
+                                    selected = devices.length - 1
+                                }
+                                model = devices
+                                currentIndex = selected
+                            }
+                            Component.onCompleted: refreshDevices()
+                            onActivated: StreamingPreferences.micBridgeDevice = model[currentIndex].device
+                        }
+                        Button { id: micBridgeRefresh; text: qsTr("Refresh"); onClicked: micBridgeDeviceCombo.refreshDevices() }
+                    }
+                    TextField {
+                        width: parent.width
+                        enabled: micBridgeCheck.checked
+                        placeholderText: qsTr("Mic receiver: connected Moonlight host (default)")
+                        text: StreamingPreferences.micBridgeHost
+                        onTextEdited: StreamingPreferences.micBridgeHost = text.trim()
+                    }
+                    Label {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Captures your microphone only during a stream, including while unfocused or the mouse is released. On Windows select Microphone (Steam Streaming Microphone) in your voice app. Requires the MicBridge receiver. LAN only; audio is unencrypted.")
+                    }
+                }
+
                 CheckBox {
                     id: audioPcCheck
                     width: parent.width

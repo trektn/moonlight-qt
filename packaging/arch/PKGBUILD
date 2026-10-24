@@ -1,8 +1,8 @@
 # Maintainer: trektn
 pkgname=moonlight-qt-mousebridge
-pkgver=6.1.0.mb2
+pkgver=6.1.0.mb3
 pkgrel=1
-pkgdesc='Moonlight Qt 6.1.0 with native Linux MouseBridge/VMulti capture toggle'
+pkgdesc='Moonlight Qt 6.1.0 with native MouseBridge and microphone passthrough'
 arch=('x86_64')
 url='https://github.com/trektn/moonlight-qt'
 license=('GPL-3.0-or-later')
@@ -14,7 +14,7 @@ optdepends=('qt6-wayland: native Wayland GUI support')
 provides=('moonlight-qt=6.1.0')
 conflicts=('moonlight-qt' 'moonlight-qt-git' 'moonlight-qt-bin')
 options=('!debug' '!lto')
-source=('moonlight-qt::git+https://github.com/trektn/moonlight-qt.git#tag=v6.1.0-mousebridge.2')
+source=('moonlight-qt::git+https://github.com/trektn/moonlight-qt.git#tag=v6.1.0-mousebridge.3')
 sha256sums=('SKIP')
 
 prepare() {
@@ -44,5 +44,6 @@ package() {
     cd "$srcdir/build/app"
     make INSTALL_ROOT="$pkgdir" install
     install -Dm644 "$srcdir/moonlight-qt/MOUSEBRIDGE.md" "$pkgdir/usr/share/doc/$pkgname/MOUSEBRIDGE.md"
+    install -Dm644 "$srcdir/moonlight-qt/micbridge/README.md" "$pkgdir/usr/share/doc/$pkgname/MICBRIDGE.md"
     install -Dm644 "$srcdir/moonlight-qt/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

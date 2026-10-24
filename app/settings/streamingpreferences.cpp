@@ -1,6 +1,7 @@
 #include "streamingpreferences.h"
 #include "utils.h"
 #include "streaming/input/mousebridge.h"
+#include "streaming/audio/micbridge.h"
 
 #include <QSettings>
 #include <QTranslator>
@@ -133,6 +134,9 @@ void StreamingPreferences::reload()
     mouseBridgeEnabled = settings.value("mousebridge/enabled", false).toBool();
     mouseBridgeDevice = settings.value("mousebridge/device").toString();
     mouseBridgeHost = settings.value("mousebridge/host").toString();
+    micBridgeEnabled = settings.value("micbridge/enabled", false).toBool();
+    micBridgeDevice = settings.value("micbridge/device").toString();
+    micBridgeHost = settings.value("micbridge/host").toString();
     absoluteTouchMode = settings.value(SER_ABSTOUCHMODE, true).toBool();
     framePacing = settings.value(SER_FRAMEPACING, false).toBool();
     connectionWarnings = settings.value(SER_CONNWARNINGS, true).toBool();
@@ -326,6 +330,9 @@ void StreamingPreferences::save()
     settings.setValue("mousebridge/enabled", mouseBridgeEnabled);
     settings.setValue("mousebridge/device", mouseBridgeDevice);
     settings.setValue("mousebridge/host", mouseBridgeHost.trimmed());
+    settings.setValue("micbridge/enabled", micBridgeEnabled);
+    settings.setValue("micbridge/device", micBridgeDevice);
+    settings.setValue("micbridge/host", micBridgeHost.trimmed());
     settings.setValue(SER_ABSTOUCHMODE, absoluteTouchMode);
     settings.setValue(SER_FRAMEPACING, framePacing);
     settings.setValue(SER_CONNWARNINGS, connectionWarnings);
@@ -350,6 +357,11 @@ void StreamingPreferences::save()
     settings.setValue(SER_SWAPFACEBUTTONS, swapFaceButtons);
     settings.setValue(SER_CAPTURESYSKEYS, captureSysKeysMode);
     settings.setValue(SER_KEEPAWAKE, keepAwake);
+}
+
+QVariantList StreamingPreferences::micBridgeDevices() const
+{
+    return MicBridge::devices();
 }
 
 QVariantList StreamingPreferences::mouseBridgeDevices() const

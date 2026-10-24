@@ -1719,7 +1719,8 @@ void Session::exec(QWindow* qtWindow)
 QString Session::mouseBridgeStats() const
 {
     const auto bridge = m_MouseBridgeStats.lock();
-    return bridge ? bridge->statsText() : QString();
+    const auto mic = m_MicBridgeStats.lock();
+    return (bridge ? bridge->statsText() : QString()) + (mic ? mic->statsText() : QString());
 }
 
 void Session::execInternal()
@@ -1759,6 +1760,11 @@ void Session::execInternal()
     }
 
     m_MouseBridgeStats = m_InputHandler->mouseBridge();
+    // Publish weak stats references before decoder threads can read them.
+    // Capture is started later, after the stream has connected successfully.
+    std::shared_ptr<MicBridge> micBridge = m_Preferences->micBridgeEnabled
+        ? std::make_shared<MicBridge>() : std::shared_ptr<MicBridge>();
+    m_MicBridgeStats = micBridge;
 
     AsyncConnectionStartThread asyncConnThread(this);
     if (!m_ThreadedExec) {
@@ -1975,6 +1981,18 @@ void Session::execInternal()
     // (m_UnexpectedTermination is set back to true).
     m_UnexpectedTermination = false;
 
+    if (micBridge) {
+        QString error;
+        const QString host = m_Preferences->micBridgeHost.trimmed().isEmpty()
+            ? m_Computer->activeAddress.address() : m_Preferences->micBridgeHost.trimmed();
+        if (!micBridge->start(m_Preferences->micBridgeDevice, host, error)) {
+            SDL_LogError(SDL_LOG_CATEGORY_AUDIO, "%s", qPrintable(error));
+            m_OverlayManager.updateOverlayText(Overlay::OverlayStatusUpdate, qPrintable(error));
+            m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, true);
+            micBridge.reset();
+        }
+    }
+
     // Start rich presence to indicate we're in game
     RichPresenceManager presence(*m_Preferences, m_App.name);
 
@@ -2018,6 +2036,14 @@ void Session::execInternal()
 #endif
         if (m_InputHandler->handleMouseBridgeEvent(event)) continue;
         switch (event.type) {
+        case SDL_AUDIODEVICEREMOVED:
+            if (event.adevice.iscapture && micBridge && micBridge->ownsDevice(event.adevice.which)) {
+                micBridge.reset();
+                m_OverlayManager.updateOverlayText(Overlay::OverlayStatusUpdate,
+                    "Microphone disconnected; MicBridge stopped.\nReconnect it and restart the stream.");
+                m_OverlayManager.setOverlayState(Overlay::OverlayStatusUpdate, true);
+            }
+            break;
         case SDL_QUIT:
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                         "Quit event received");
@@ -2318,6 +2344,8 @@ void Session::execInternal()
     }
 
 DispatchDeferredCleanup:
+    // Close capture before returning to the GUI, independently of host cleanup.
+    micBridge.reset();
     // Uncapture the mouse and hide the window immediately,
     // so we can return to the Qt GUI ASAP.
     m_InputHandler->setCaptureActive(false);

@@ -3,7 +3,9 @@
 This fork is based on **Moonlight Qt 6.1.0** and adds native Linux MouseBridge
 input with **Ctrl+Alt+Shift+C** release/resume. See [MouseBridge setup and the
 Arch package build](MOUSEBRIDGE.md). The receiver address defaults to the
-connected Moonlight host.
+connected Moonlight host. It also includes opt-in [MicBridge microphone
+passthrough](micbridge/README.md) with a native Windows receiver that starts
+automatically alongside Sunshine at sign-in.
 
 [Moonlight PC](https://moonlight-stream.org) is an open source PC client for NVIDIA GameStream and [Sunshine](https://github.com/LizardByte/Sunshine).
 

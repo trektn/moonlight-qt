@@ -9,6 +9,7 @@
 #include "input/input.h"
 #include "video/decoder.h"
 #include "audio/renderers/renderer.h"
+#include "audio/micbridge.h"
 #include "video/overlaymanager.h"
 
 class SupportedVideoFormatList : public QList<int>
@@ -262,6 +263,7 @@ private:
     // Set before decoder threads start; weak ownership permits safe stats reads
     // while the input handler is being torn down at the end of a stream.
     std::weak_ptr<MouseBridge> m_MouseBridgeStats;
+    std::weak_ptr<MicBridge> m_MicBridgeStats;
     int m_MouseEmulationRefCount;
     int m_FlushingWindowEventsRef;
 
